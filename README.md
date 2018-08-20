@@ -45,3 +45,23 @@ Lets print total amount of bytes we downloaded
 ```
 System.out.println(downloaded); //mine is 2061457
 ```
+
+## Dependency Info
+```
+<!--Add JitPack-->
+<repositories>
+	<repository>
+		<id>jitpack.io</id>
+		<url>https://jitpack.io</url>
+	</repository>
+</repositories>
+
+<!--Add libdownloader-->
+<dependencies>
+	<dependency>
+		<groupId>com.github.nabilanam</groupId>
+		<artifactId>libdownloader</artifactId>
+		<version>v0.1</version>
+	</dependency>
+</dependencies>
+```
