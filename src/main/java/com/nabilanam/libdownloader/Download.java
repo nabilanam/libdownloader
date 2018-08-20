@@ -21,6 +21,7 @@ public class Download {
 	private boolean isComplete;
 	private Path directory;
 	private Path tmpDirectory;
+	private String fileName;
 	private Path filePath;
 	private List<Path> tmpPaths;
 	private Thread async;
@@ -146,7 +147,7 @@ public class Download {
 		long end = -1;
 		long begin;
 		for (int i = 0; i < threadCount; i++) {
-			Path path = Paths.get(filePath.toString()+i);
+			Path path = Paths.get(tmpDirectory.toAbsolutePath().toString(), fileName + i);
 			tmpPaths.add(path);
 			File file = path.toFile();
 			begin = end + 1;
@@ -331,6 +332,7 @@ public class Download {
 			initializeDefaults();
 			Download download = new Download();
 			download.info = info;
+			download.fileName = fileName;
 			download.filePath = filePath;
 			download.directory = directory;
 			download.tmpDirectory = tmpDirectory;
@@ -353,9 +355,9 @@ public class Download {
 			info = new HttpInfo(url, userAgent);
 
 			if (Util.isStringNullOrEmpty(fileName))
-				filePath = Paths.get(directory.toAbsolutePath().toString(), info.getName());
-			else
-				filePath = Paths.get(directory.toAbsolutePath().toString(), fileName);
+				fileName = info.getName();
+
+			filePath = Paths.get(directory.toAbsolutePath().toString(), fileName);
 		}
 	}
 }
