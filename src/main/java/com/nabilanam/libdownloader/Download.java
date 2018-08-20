@@ -17,11 +17,11 @@ import java.util.concurrent.*;
  */
 public class Download {
 
-	private String fileName;
 	private int threadCount;
 	private boolean isComplete;
 	private Path directory;
 	private Path tmpDirectory;
+	private Path filePath;
 	private List<Path> tmpPaths;
 	private Thread async;
 	private HttpInfo info;
@@ -82,6 +82,10 @@ public class Download {
 		return isComplete;
 	}
 
+	public Path getFilePath() {
+		return filePath;
+	}
+
 	synchronized void downloaded(int bytes) {
 		if (!Util.isNull(listener)) listener.downloaded(bytes);
 	}
@@ -137,7 +141,7 @@ public class Download {
 		long end = -1;
 		long begin;
 		for (int i = 0; i < threadCount; i++) {
-			Path path = getFilePath(tmpDirectory.toAbsolutePath(), info.getName() + i);
+			Path path = Paths.get(filePath.toString()+i);
 			tmpPaths.add(path);
 			File file = path.toFile();
 			begin = end + 1;
@@ -156,15 +160,13 @@ public class Download {
 
 	private List<Future<?>> singleWorker(CountDownLatch stopLatch, CountDownLatch doneLatch) {
 		List<Future<?>> futures = new ArrayList<>();
-		Path path;
-		path = getFinalFilePath();
-		File file = path.toFile();
+		File file = filePath.toFile();
 		long begin = chooseBegin(file, 0, file.length());
 		if (begin >= info.getContentLength()) {
 			evilCountDown(stopLatch, doneLatch);
 			return futures;
 		}
-		Worker worker = factory.getWorker(stopLatch, doneLatch, path, begin);
+		Worker worker = factory.getWorker(stopLatch, doneLatch, filePath, begin);
 		Future<?> future = es.submit(worker);
 		futures.add(future);
 		return futures;
@@ -173,8 +175,7 @@ public class Download {
 	private void mergeFiles() {
 		if (!Util.isCollectionNullOrEmpty(tmpPaths)) {
 			try {
-				Path path = getFinalFilePath();
-				try (FileOutputStream fos = new FileOutputStream(path.toFile(), false)) {
+				try (FileOutputStream fos = new FileOutputStream(filePath.toFile(), false)) {
 					for (Path tmpPath : tmpPaths) {
 						if (tmpPath.toFile().exists())
 							Files.copy(tmpPath, fos);
@@ -187,19 +188,6 @@ public class Download {
 				e.printStackTrace();
 			}
 		}
-	}
-
-	private Path getFinalFilePath() {
-		Path path;
-		if (Util.isStringNullOrEmpty(fileName))
-			path = getFilePath(directory.toAbsolutePath(), info.getName());
-		else
-			path = getFilePath(directory.toAbsolutePath(), fileName);
-		return path;
-	}
-
-	private Path getFilePath(Path path, String name) {
-		return Paths.get(path.toString(), name);
 	}
 
 	private void countDownAwait(CountDownLatch latch) {
@@ -242,9 +230,11 @@ public class Download {
 		private URL url;
 		private String fileName;
 		private Path directory;
+		private Path filePath;
 		private Path tmpDirectory;
 		private int threadCount = 1;
 		private String userAgent;
+		private HttpInfo info;
 		private DownloadListener listener;
 
 		/**
@@ -331,30 +321,36 @@ public class Download {
 		 * @return Download
 		 */
 		public Download build() {
-			if (Util.isNull(url)) {
-				// :)
+			if (Util.isNull(url))
 				return null;
-			}
-			if (Util.isStringNullOrEmpty(userAgent)) {
-				userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
-						"(KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36";
-			}
-			if (Util.isNull(directory)) {
-				directory = Paths.get("");
-			}
-			if (Util.isNull(tmpDirectory)) {
-				tmpDirectory = directory;
-			}
+			initializeDefaults();
 			Download download = new Download();
-			download.fileName = fileName;
-			download.listener = listener;
+			download.info = info;
+			download.filePath = filePath;
 			download.directory = directory;
 			download.tmpDirectory = tmpDirectory;
 			download.threadCount = threadCount;
-			download.info = new HttpInfo(url, userAgent);
+			download.listener = listener;
 			download.interruptSignal = new Semaphore(1);
 			download.factory = new WorkerFactory(download, download.info);
 			return download;
+		}
+
+		private void initializeDefaults() {
+			if (Util.isStringNullOrEmpty(userAgent))
+				userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
+						"(KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36";
+			if (Util.isNull(directory))
+				directory = Paths.get("");
+			if (Util.isNull(tmpDirectory))
+				tmpDirectory = directory;
+
+			info = new HttpInfo(url, userAgent);
+
+			if (Util.isStringNullOrEmpty(fileName))
+				filePath = Paths.get(directory.toAbsolutePath().toString(), info.getName());
+			else
+				filePath = Paths.get(directory.toAbsolutePath().toString(), fileName);
 		}
 	}
 }
