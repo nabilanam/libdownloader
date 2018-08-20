@@ -1,3 +1,5 @@
+[![](https://jitpack.io/v/nabilanam/libdownloader.svg)](https://jitpack.io/#nabilanam/libdownloader)
+
 # libdownloader
 Simple and lightweight download library for Java.
 
