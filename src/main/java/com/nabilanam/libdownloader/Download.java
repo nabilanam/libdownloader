@@ -82,6 +82,11 @@ public class Download {
 		return isComplete;
 	}
 
+	/**
+	 * Returns concrete file path
+	 *
+	 * @return filePath
+	 */
 	public Path getFilePath() {
 		return filePath;
 	}
