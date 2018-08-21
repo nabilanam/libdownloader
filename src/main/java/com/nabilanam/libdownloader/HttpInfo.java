@@ -12,20 +12,19 @@ import java.net.URL;
 public class HttpInfo implements Serializable {
 
 	private URL url;
+	private String userAgent;
 	private String name;
 	private String eTag;
 	private boolean partial;
-	private String userAgent;
 	private String contentType;
 	private long contentLength;
 	private String lastModified;
+	private HttpURLConnection con;
 
-	HttpInfo(URL url, String userAgent) {
-		HttpURLConnection con = null;
+	HttpInfo(HttpURLConnection con, String userAgent) {
+		this.con = con;
+		this.userAgent = userAgent;
 		try {
-			this.url = url;
-			this.userAgent = userAgent;
-			con = (HttpURLConnection) url.openConnection();
 			con.setInstanceFollowRedirects(true);
 			con.setRequestProperty("Range", "bytes=0-");
 			con.setRequestProperty("User-Agent", userAgent);
@@ -34,6 +33,7 @@ public class HttpInfo implements Serializable {
 			if (!Util.isNull(contentDisposition) && contentDisposition.contains("=")) {
 				name = contentDisposition.split("=")[1].replaceAll("\"", "");
 			} else {
+				URL url = con.getURL();
 				name = url.getPath().substring(url.getPath().lastIndexOf('/') + 1, url.getPath().length())
 						.replaceAll("%20", " ");
 			}
@@ -47,14 +47,12 @@ public class HttpInfo implements Serializable {
 			contentLength = con.getContentLengthLong();
 			con.disconnect();
 		} catch (IOException ex) {
-			if (!Util.isNull(con)) {
-				con.disconnect();
-			}
+			con.disconnect();
 		}
 	}
 
 	public URL getUrl() {
-		return url;
+		return con.getURL();
 	}
 
 	public String getName() {

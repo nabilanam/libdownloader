@@ -3,6 +3,7 @@ package com.nabilanam.libdownloader;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -15,23 +16,31 @@ import java.util.concurrent.*;
 /**
  * @author nabil
  */
-public class Download {
+public final class Download {
 
-	private int threadCount;
-	private boolean isComplete;
-	private Path directory;
-	private Path tmpDirectory;
-	private String fileName;
-	private Path filePath;
-	private List<Path> tmpPaths;
+	private final int threadCount;
+	private final Path directory;
+	private final Path tmpDirectory;
+	private final String fileName;
+	private final Path filePath;
+	private final HttpInfo httpInfo;
+	private final Semaphore interrupt;
+	private final DownloadListener listener;
 	private Thread async;
-	private HttpInfo info;
+	private boolean isComplete;
 	private ExecutorService es;
-	private WorkerFactory factory;
-	private Semaphore interruptSignal;
-	private DownloadListener listener;
+	private List<Path> tmpPaths;
 
-	private Download() {
+	private Download(int threadCount, Path directory, Path tmpDirectory, String fileName, Path filePath,
+	                 HttpInfo httpInfo, Semaphore interrupt, DownloadListener listener) {
+		this.threadCount = threadCount;
+		this.directory = directory;
+		this.tmpDirectory = tmpDirectory;
+		this.fileName = fileName;
+		this.filePath = filePath;
+		this.httpInfo = httpInfo;
+		this.interrupt = interrupt;
+		this.listener = listener;
 	}
 
 	/**
@@ -54,8 +63,8 @@ public class Download {
 	 */
 	public void stop() {
 		stopAsync();
-		semaphoreAcquire(interruptSignal);
-		interruptSignal.release();
+		interruptAcquire();
+		interruptRelease();
 	}
 
 	/**
@@ -65,22 +74,36 @@ public class Download {
 		async.interrupt();
 	}
 
-	/**
-	 * Get low level info for this download.
-	 *
-	 * @return DownloadInfo
-	 */
-	public HttpInfo getHttpInfo() {
-		return info;
+	synchronized void downloaded(int bytes) {
+		if (!Util.isNull(listener)) listener.downloaded(bytes);
 	}
 
 	/**
-	 * Returns true if every steps to download are performed successfully.
-	 *
-	 * @return isComplete
+	 * @return number of suggested threads
 	 */
-	public boolean isDownloadComplete() {
-		return isComplete;
+	public int getThreadCount() {
+		return threadCount;
+	}
+
+	/**
+	 * @return directory where download is saved
+	 */
+	public Path getDirectory() {
+		return directory;
+	}
+
+	/**
+	 * @return temporary directory
+	 */
+	public Path getTmpDirectory() {
+		return tmpDirectory;
+	}
+
+	/**
+	 * @return file name of this download
+	 */
+	public String getFileName() {
+		return fileName;
 	}
 
 	/**
@@ -92,31 +115,55 @@ public class Download {
 		return filePath;
 	}
 
-	synchronized void downloaded(int bytes) {
-		if (!Util.isNull(listener)) listener.downloaded(bytes);
+	/**
+	 * Get low level httpInfo for this download.
+	 *
+	 * @return DownloadInfo
+	 */
+	public HttpInfo getHttpInfo() {
+		return httpInfo;
+	}
+
+	/**
+	 * @return listener
+	 */
+	public DownloadListener getListener() {
+		return listener;
+	}
+
+	/**
+	 * Returns true if every steps to download are performed successfully.
+	 *
+	 * @return isComplete
+	 */
+	public boolean isComplete() {
+		return isComplete;
 	}
 
 	private Runnable runnable() {
-		resetExecutor();
 		return () -> {
+			resetExecutor();
+
 			List<Future<?>> futures = new ArrayList<>();
 			CountDownLatch stopLatch = new CountDownLatch(threadCount);
 			CountDownLatch doneLatch = new CountDownLatch(threadCount);
-			semaphoreAcquire(interruptSignal);
+			interruptAcquire();
+
 			try {
 				futures = startDownload(stopLatch, doneLatch);
 				doneLatch.await();
-				interruptSignal.release();
+				interruptRelease();
 			} catch (IOException | InterruptedException e) {
 				cancelFutures(futures);
 				countDownAwait(stopLatch);
-				interruptSignal.release();
+				interruptRelease();
 				es.shutdown();
 				return;
 			}
+
 			mergeFiles();
-			isComplete = true;
 			es.shutdown();
+			isComplete = true;
 		};
 	}
 
@@ -126,17 +173,33 @@ public class Download {
 		es = Executors.newCachedThreadPool();
 	}
 
+	private void interruptAcquire() {
+		try {
+			interrupt.acquire();
+		} catch (InterruptedException e) {
+			e.printStackTrace();
+		}
+	}
+
+	private void interruptRelease() {
+		interrupt.release();
+	}
+
 	private List<Future<?>> startDownload(CountDownLatch stopLatch, CountDownLatch doneLatch) throws IOException {
 		List<Future<?>> futures;
-		Objects.requireNonNull(info);
+		Objects.requireNonNull(httpInfo);
 		Util.createDirectory(directory);
-		long contentLength = info.getContentLength();
-		if (threadCount > 1 && info.isPartial() && contentLength >= threadCount) {
+		long contentLength = httpInfo.getContentLength();
+		if (isMultiWorkerDownload(contentLength)) {
 			futures = multiWorker(contentLength, stopLatch, doneLatch);
 		} else {
 			futures = singleWorker(stopLatch, doneLatch);
 		}
 		return futures;
+	}
+
+	boolean isMultiWorkerDownload(long contentLength) {
+		return threadCount > 1 && httpInfo.isPartial() && contentLength >= threadCount;
 	}
 
 	private List<Future<?>> multiWorker(long contentLength, CountDownLatch stopLatch, CountDownLatch doneLatch) throws IOException {
@@ -150,32 +213,77 @@ public class Download {
 			Path path = Paths.get(tmpDirectory.toAbsolutePath().toString(), fileName + i);
 			tmpPaths.add(path);
 			File file = path.toFile();
-			begin = end + 1;
-			end = chooseEnd(contentLength, size, begin, i);
-			begin = chooseBegin(file, begin, file.length() + begin);
-			if (begin >= end) {
+			begin = getBegin(file, end);
+			end = getEnd(i, contentLength, size, end);
+			if (begin > end) {
 				evilCountDown(stopLatch, doneLatch);
 				continue;
 			}
-			Worker worker = factory.getWorker(stopLatch, doneLatch, path, begin, end);
+			Worker worker = new Worker
+					.Builder(httpInfo.getUrl(), path)
+					.begin(begin)
+					.end(end)
+					.userAgent(httpInfo.getUserAgent())
+					.stopLatch(stopLatch)
+					.doneLatch(doneLatch)
+					.download(this)
+					.build();
 			Future<?> future = es.submit(worker);
 			futures.add(future);
 		}
 		return futures;
 	}
 
+	long getBegin(File file, long end) {
+		return Util.isNonDirectoryFile(file) ? file.length() + end + 1 : end + 1;
+	}
+
+	long getEnd(int counter, long contentLength, long size, long end) {
+		return (counter == (threadCount - 1)) ? contentLength : (end + size + 1);
+	}
+
+	private void evilCountDown(CountDownLatch stopLatch, CountDownLatch doneLatch) {
+		stopLatch.countDown();
+		doneLatch.countDown();
+	}
+
 	private List<Future<?>> singleWorker(CountDownLatch stopLatch, CountDownLatch doneLatch) {
 		List<Future<?>> futures = new ArrayList<>();
 		File file = filePath.toFile();
-		long begin = chooseBegin(file, 0, file.length());
-		if (begin >= info.getContentLength()) {
+		long begin = getBegin(file);
+		if (begin > httpInfo.getContentLength()) {
 			evilCountDown(stopLatch, doneLatch);
 			return futures;
 		}
-		Worker worker = factory.getWorker(stopLatch, doneLatch, filePath, begin);
+		Worker worker = new Worker
+				.Builder(httpInfo.getUrl(), filePath)
+				.begin(begin)
+				.userAgent(httpInfo.getUserAgent())
+				.stopLatch(stopLatch)
+				.doneLatch(doneLatch)
+				.download(this)
+				.build();
 		Future<?> future = es.submit(worker);
 		futures.add(future);
 		return futures;
+	}
+
+	long getBegin(File file) {
+		return Util.isNonDirectoryFile(file) ? file.length() : 0;
+	}
+
+	private void cancelFutures(List<Future<?>> futures) {
+		for (Future<?> future : futures) {
+			future.cancel(true);
+		}
+	}
+
+	private void countDownAwait(CountDownLatch latch) {
+		try {
+			latch.await();
+		} catch (InterruptedException e1) {
+			e1.printStackTrace();
+		}
 	}
 
 	private void mergeFiles() {
@@ -196,41 +304,6 @@ public class Download {
 		}
 	}
 
-	private void countDownAwait(CountDownLatch latch) {
-		try {
-			latch.await();
-		} catch (InterruptedException e1) {
-			e1.printStackTrace();
-		}
-	}
-
-	private void semaphoreAcquire(Semaphore semaphore) {
-		try {
-			semaphore.acquire();
-		} catch (InterruptedException e) {
-			e.printStackTrace();
-		}
-	}
-
-	private void cancelFutures(List<Future<?>> futures) {
-		for (Future<?> future : futures) {
-			future.cancel(true);
-		}
-	}
-
-	private void evilCountDown(CountDownLatch stopLatch, CountDownLatch doneLatch) {
-		stopLatch.countDown();
-		doneLatch.countDown();
-	}
-
-	private long chooseBegin(File file, long oldValue, long newValue) {
-		return (file.exists() && !file.isDirectory()) ? newValue : oldValue;
-	}
-
-	private long chooseEnd(long contentLength, long size, long begin, int counter) {
-		return (counter == (threadCount - 1)) ? contentLength : (begin + size);
-	}
-
 
 	public static class Builder {
 		private URL url;
@@ -238,9 +311,9 @@ public class Download {
 		private Path directory;
 		private Path filePath;
 		private Path tmpDirectory;
-		private int threadCount = 1;
+		private int threadCount;
 		private String userAgent;
-		private HttpInfo info;
+		private HttpInfo httpInfo;
 		private DownloadListener listener;
 
 		/**
@@ -276,7 +349,7 @@ public class Download {
 
 		/**
 		 * Number of threads to download.
-		 * Default value is 1.
+		 * Default value is 1 which is calling thread.
 		 * Falls back to 1 if provided value is 0 or negative or if server doesn't support partial download.
 		 *
 		 * @param threadCount Number of threads to use while downloading.
@@ -325,39 +398,42 @@ public class Download {
 		 * The download object.
 		 *
 		 * @return Download
+		 * @throws IOException if network is unavailable
 		 */
-		public Download build() {
+		public Download build() throws IOException {
 			if (Util.isNull(url))
 				return null;
 			initializeDefaults();
-			Download download = new Download();
-			download.info = info;
-			download.fileName = fileName;
-			download.filePath = filePath;
-			download.directory = directory;
-			download.tmpDirectory = tmpDirectory;
-			download.threadCount = threadCount;
-			download.listener = listener;
-			download.interruptSignal = new Semaphore(1);
-			download.factory = new WorkerFactory(download, download.info);
-			return download;
+			Semaphore interrupt = new Semaphore(1);
+			return new Download(threadCount,
+					directory, tmpDirectory,
+					fileName, filePath,
+					httpInfo, interrupt, listener);
 		}
 
-		private void initializeDefaults() {
+		private void initializeDefaults() throws IOException {
+			if (threadCount < 1)
+				threadCount = 1;
 			if (Util.isStringNullOrEmpty(userAgent))
 				userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
 						"(KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36";
+			if (Util.isNull(httpInfo)) {
+				HttpURLConnection con = (HttpURLConnection) url.openConnection();
+				httpInfo = new HttpInfo(con, userAgent);
+			}
 			if (Util.isNull(directory))
-				directory = Paths.get("");
+				directory = Paths.get("").toAbsolutePath();
 			if (Util.isNull(tmpDirectory))
-				tmpDirectory = directory;
-
-			info = new HttpInfo(url, userAgent);
-
+				tmpDirectory = directory.toAbsolutePath();
 			if (Util.isStringNullOrEmpty(fileName))
-				fileName = info.getName();
+				fileName = httpInfo.getName();
 
-			filePath = Paths.get(directory.toAbsolutePath().toString(), fileName);
+			filePath = Paths.get(directory.toString(), fileName);
+		}
+
+		Builder httpInfo(HttpInfo info) {
+			this.httpInfo = info;
+			return this;
 		}
 	}
 }

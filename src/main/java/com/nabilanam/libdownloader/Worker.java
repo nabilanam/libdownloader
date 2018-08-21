@@ -12,19 +12,27 @@ import java.util.concurrent.CountDownLatch;
 /**
  * @author nabil
  */
-class Worker implements Runnable {
-	private URL url;
-	private long end;
-	private long begin;
-	private String eTag;
-	private Path filePath;
-	private String userAgent;
-	private String lastModified;
-	private CountDownLatch doneLatch;
-	private CountDownLatch stopLatch;
-	private Download download;
+final class Worker implements Runnable {
 
-	private Worker() {
+	private final URL url;
+	private final long end;
+	private final long begin;
+	private final Path filePath;
+	private final String userAgent;
+	private final CountDownLatch doneLatch;
+	private final CountDownLatch stopLatch;
+	private final Download download;
+
+	private Worker(URL url, String userAgent, long begin, long end, Path filePath,
+	               CountDownLatch doneLatch, CountDownLatch stopLatch, Download download) {
+		this.url = url;
+		this.end = end;
+		this.begin = begin;
+		this.filePath = filePath;
+		this.userAgent = userAgent;
+		this.doneLatch = doneLatch;
+		this.stopLatch = stopLatch;
+		this.download = download;
 	}
 
 	@Override
@@ -34,10 +42,9 @@ class Worker implements Runnable {
 			con = (HttpURLConnection) url.openConnection();
 			con.setRequestProperty("User-Agent", userAgent);
 			con.setInstanceFollowRedirects(true);
-			if (begin < end) {
-				con.setRequestProperty("Range", "bytes=" + begin + "-" + end);
-			} else if (begin > end) {
-				con.setRequestProperty("Range", "bytes=" + begin + "-");
+			if (begin != end) {
+				String range = getRange();
+				con.setRequestProperty("Range", range);
 			}
 			con.setRequestMethod("GET");
 
@@ -50,8 +57,7 @@ class Worker implements Runnable {
 				return;
 			}
 
-			if (responseCode == HttpURLConnection.HTTP_OK
-					|| responseCode == HttpURLConnection.HTTP_PARTIAL) {
+			if (isDownloadable(responseCode)) {
 				try (InputStream inputStream = con.getInputStream();
 				     OutputStream outputStream = new FileOutputStream(filePath.toFile(), true)) {
 					byte[] buffer = new byte[4096];
@@ -84,14 +90,27 @@ class Worker implements Runnable {
 		}
 	}
 
+	String getRange() {
+		String range = "";
+		if (begin < end) {
+			range = "bytes=" + begin + "-" + end;
+		} else if (begin > end) {
+			range = "bytes=" + begin + "-";
+		}
+		return range;
+	}
+
+	boolean isDownloadable(int responseCode) {
+		return responseCode == HttpURLConnection.HTTP_OK
+				|| responseCode == HttpURLConnection.HTTP_PARTIAL;
+	}
+
 	static class Builder {
 		private URL url;
 		private long end;
 		private long begin;
-		private String eTag;
 		private Path filePath;
 		private String userAgent;
-		private String lastModified;
 		private CountDownLatch doneLatch;
 		private CountDownLatch stopLatch;
 		private Download download;
@@ -111,18 +130,8 @@ class Worker implements Runnable {
 			return this;
 		}
 
-		Builder eTag(String eTag) {
-			this.eTag = eTag;
-			return this;
-		}
-
 		Builder userAgent(String userAgent) {
 			this.userAgent = userAgent;
-			return this;
-		}
-
-		Builder lastModified(String lastModified) {
-			this.lastModified = lastModified;
 			return this;
 		}
 
@@ -142,18 +151,8 @@ class Worker implements Runnable {
 		}
 
 		Worker build() {
-			Worker worker = new Worker();
-			worker.url = url;
-			worker.end = end;
-			worker.eTag = eTag;
-			worker.begin = begin;
-			worker.filePath = filePath;
-			worker.download = download;
-			worker.userAgent = userAgent;
-			worker.doneLatch = doneLatch;
-			worker.stopLatch = stopLatch;
-			worker.lastModified = lastModified;
-			return worker;
+			return new Worker(url, userAgent, begin, end, filePath,
+					doneLatch, stopLatch, download);
 		}
 	}
 }

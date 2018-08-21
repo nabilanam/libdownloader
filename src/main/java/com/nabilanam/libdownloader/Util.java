@@ -1,5 +1,6 @@
 package com.nabilanam.libdownloader;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,5 +31,9 @@ public class Util {
 		if (!isPathNullOrEmpty(directory)) {
 			Files.createDirectories(directory);
 		}
+	}
+
+	public static boolean isNonDirectoryFile(File file) {
+		return file.exists() && !file.isDirectory();
 	}
 }
