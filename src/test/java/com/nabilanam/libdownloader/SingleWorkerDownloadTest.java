@@ -32,8 +32,8 @@ public class SingleWorkerDownloadTest {
 		HttpInfo info = new HttpInfo(mockConnection, "");
 		listener = mock(DownloadListener.class);
 		download = new Download.Builder(url)
-				.directory(Paths.get("src/main/test/output"))
-				.tmpDirectory(Paths.get("src/main/test/output/temp"))
+				.directory(Paths.get("src/test/java/output"))
+				.tmpDirectory(Paths.get("src/test/java/output/temp"))
 				.httpInfo(info)
 				.listener(listener)
 				.build();
@@ -43,9 +43,9 @@ public class SingleWorkerDownloadTest {
 	public void whenBuildDownload_thenReturnGetters() {
 		assertEquals(listener, download.getListener());
 		assertEquals("treasure_island.pdf", download.getFileName());
-		assertEquals(Paths.get("src/main/test/output"), download.getDirectory());
-		assertEquals(Paths.get("src/main/test/output/temp"), download.getTmpDirectory());
-		assertEquals(Paths.get("src/main/test/output/treasure_island.pdf"),
+		assertEquals(Paths.get("src/test/java/output"), download.getDirectory());
+		assertEquals(Paths.get("src/test/java/output/temp"), download.getTmpDirectory());
+		assertEquals(Paths.get("src/test/java/output/treasure_island.pdf"),
 				download.getFilePath());
 	}
 
