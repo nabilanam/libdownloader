@@ -63,7 +63,7 @@ System.out.println(downloaded); //mine is 2061457
 	<dependency>
 		<groupId>com.github.nabilanam</groupId>
 		<artifactId>libdownloader</artifactId>
-		<version>v0.1</version>
+		<version>v0.2</version>
 	</dependency>
 </dependencies>
 ```
