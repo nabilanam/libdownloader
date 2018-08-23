@@ -190,7 +190,7 @@ public final class Download {
 		Objects.requireNonNull(httpInfo);
 		Util.createDirectory(directory);
 		long contentLength = httpInfo.getContentLength();
-		if (isMultiWorkerDownload(contentLength)) {
+		if (isMultiWorkerDownload()) {
 			futures = multiWorker(contentLength, stopLatch, doneLatch);
 		} else {
 			futures = singleWorker(stopLatch, doneLatch);
@@ -198,8 +198,8 @@ public final class Download {
 		return futures;
 	}
 
-	boolean isMultiWorkerDownload(long contentLength) {
-		return threadCount > 1 && httpInfo.isPartial() && contentLength >= threadCount;
+	private boolean isMultiWorkerDownload() {
+		return threadCount > 1;
 	}
 
 	private List<Future<?>> multiWorker(long contentLength, CountDownLatch stopLatch, CountDownLatch doneLatch) throws IOException {
@@ -215,7 +215,7 @@ public final class Download {
 			File file = path.toFile();
 			begin = getBegin(file, end);
 			end = getEnd(i, contentLength, size, end);
-			if (begin > end) {
+			if (isMultiWorkerFileAlreadyDownloaded(begin, end)) {
 				evilCountDown(stopLatch, doneLatch);
 				continue;
 			}
@@ -242,6 +242,10 @@ public final class Download {
 		return (counter == (threadCount - 1)) ? contentLength : (end + size + 1);
 	}
 
+	boolean isMultiWorkerFileAlreadyDownloaded(long begin, long end) {
+		return begin > end;
+	}
+
 	private void evilCountDown(CountDownLatch stopLatch, CountDownLatch doneLatch) {
 		stopLatch.countDown();
 		doneLatch.countDown();
@@ -251,10 +255,14 @@ public final class Download {
 		List<Future<?>> futures = new ArrayList<>();
 		File file = filePath.toFile();
 		long begin = getBegin(file);
-		if (begin > httpInfo.getContentLength()) {
+		long contentLength = httpInfo.getContentLength();
+		if (isSingleWorkerFileAlreadyDownloaded(begin, contentLength)) {
 			evilCountDown(stopLatch, doneLatch);
 			return futures;
 		}
+		boolean append = true;
+		if (contentLength == -1)
+			append = false;
 		Worker worker = new Worker
 				.Builder(httpInfo.getUrl(), filePath)
 				.begin(begin)
@@ -262,6 +270,7 @@ public final class Download {
 				.stopLatch(stopLatch)
 				.doneLatch(doneLatch)
 				.download(this)
+				.append(append)
 				.build();
 		Future<?> future = es.submit(worker);
 		futures.add(future);
@@ -270,6 +279,10 @@ public final class Download {
 
 	long getBegin(File file) {
 		return Util.isNonDirectoryFile(file) ? file.length() : 0;
+	}
+
+	boolean isSingleWorkerFileAlreadyDownloaded(long begin, long contentLength) {
+		return contentLength != -1 && begin > contentLength;
 	}
 
 	private void cancelFutures(List<Future<?>> futures) {
@@ -412,14 +425,15 @@ public final class Download {
 		}
 
 		private void initializeDefaults() throws IOException {
-			if (threadCount < 1)
-				threadCount = 1;
 			if (Util.isStringNullOrEmpty(userAgent))
 				userAgent = "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 " +
 						"(KHTML, like Gecko) Chrome/51.0.2704.103 Safari/537.36";
 			if (Util.isNull(httpInfo)) {
 				HttpURLConnection con = (HttpURLConnection) url.openConnection();
 				httpInfo = new HttpInfo(con, userAgent);
+			}
+			if (threadCount < 1 || !isMultiThreadDownload(httpInfo.getContentLength())) {
+				threadCount = 1;
 			}
 			if (Util.isNull(directory))
 				directory = Paths.get("").toAbsolutePath();
@@ -434,6 +448,10 @@ public final class Download {
 		Builder httpInfo(HttpInfo info) {
 			this.httpInfo = info;
 			return this;
+		}
+
+		boolean isMultiThreadDownload(long contentLength) {
+			return threadCount > 1 && httpInfo.isPartial() && contentLength >= threadCount;
 		}
 	}
 }
