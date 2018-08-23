@@ -6,7 +6,7 @@
 
 	<groupId>com.nabilanam</groupId>
 	<artifactId>libdownloader</artifactId>
-	<version>0.1</version>
+	<version>0.2</version>
 
 	<properties>
 		<encoding>UTF-8</encoding>
