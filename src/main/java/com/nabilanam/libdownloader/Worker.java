@@ -22,9 +22,10 @@ final class Worker implements Runnable {
 	private final CountDownLatch doneLatch;
 	private final CountDownLatch stopLatch;
 	private final Download download;
+	private final boolean append;
 
 	private Worker(URL url, String userAgent, long begin, long end, Path filePath,
-	               CountDownLatch doneLatch, CountDownLatch stopLatch, Download download) {
+	               CountDownLatch doneLatch, CountDownLatch stopLatch, Download download, boolean append) {
 		this.url = url;
 		this.end = end;
 		this.begin = begin;
@@ -33,6 +34,7 @@ final class Worker implements Runnable {
 		this.doneLatch = doneLatch;
 		this.stopLatch = stopLatch;
 		this.download = download;
+		this.append = append;
 	}
 
 	@Override
@@ -59,7 +61,7 @@ final class Worker implements Runnable {
 
 			if (isDownloadable(responseCode)) {
 				try (InputStream inputStream = con.getInputStream();
-				     OutputStream outputStream = new FileOutputStream(filePath.toFile(), true)) {
+				     OutputStream outputStream = new FileOutputStream(filePath.toFile(), append)) {
 					byte[] buffer = new byte[4096];
 					int bytesRead;
 					while ((bytesRead = inputStream.read(buffer, 0, buffer.length)) != -1) {
@@ -114,6 +116,7 @@ final class Worker implements Runnable {
 		private CountDownLatch doneLatch;
 		private CountDownLatch stopLatch;
 		private Download download;
+		private boolean append = true;
 
 		Builder(URL url, Path filePath) {
 			this.url = url;
@@ -150,9 +153,14 @@ final class Worker implements Runnable {
 			return this;
 		}
 
+		Builder append(boolean append) {
+			this.append = append;
+			return this;
+		}
+
 		Worker build() {
 			return new Worker(url, userAgent, begin, end, filePath,
-					doneLatch, stopLatch, download);
+					doneLatch, stopLatch, download, append);
 		}
 	}
 }
