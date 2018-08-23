@@ -24,27 +24,14 @@ public class MultiWorkerDownloadTest {
 
 		HttpURLConnection mockConnection = mock(HttpURLConnection.class);
 		when(mockConnection.getURL()).thenReturn(url);
-		when(mockConnection.getResponseCode()).thenReturn(206);
+		when(mockConnection.getResponseCode()).thenReturn(HttpURLConnection.HTTP_PARTIAL);
 
+		int threadCount = 4;
 		HttpInfo info = new HttpInfo(mockConnection, "");
 		download = new Download.Builder(url)
-				.threadCount(4)
+				.threadCount(threadCount)
 				.httpInfo(info)
 				.build();
-	}
-
-	@Test
-	public void whenContentLengthIsGreaterThanOrEqualThreadCountNHttpInfoIsPartial_thenReturnTrue() {
-		long contentLength = 5L;
-		assertTrue(download.isMultiWorkerDownload(contentLength));
-		contentLength = 4L;
-		assertTrue(download.isMultiWorkerDownload(contentLength));
-	}
-
-	@Test
-	public void whenContentLengthIsSmallerThanThreadCountNHttpInfoIsPartial_thenReturnFalse() {
-		long contentLength = 3L;
-		assertFalse(download.isMultiWorkerDownload(contentLength));
 	}
 
 	@Test
@@ -71,13 +58,23 @@ public class MultiWorkerDownloadTest {
 
 	@Test
 	public void whenEndCounterIsThreadCountMOne_thenReturnContentLength() {
-		long end = download.getEnd(3, 500L, 1, 2);
+		long end = download.getEnd(download.getThreadCount() - 1, 500L, 1, 2);
 		assertEquals(500L, end);
 	}
 
 	@Test
 	public void whenCounterIsNotThreadCountMOne_thenReturnEndPSizePOne() {
-		long end = download.getEnd(2, 500L, 1, 2);
+		long end = download.getEnd(download.getThreadCount() - 2, 500L, 1, 2);
 		assertEquals(4L, end);
+	}
+
+	@Test
+	public void whenBeginGreaterThanEnd_thenReturnTrue() {
+		assertTrue(download.isMultiWorkerFileAlreadyDownloaded(2, 1));
+	}
+
+	@Test
+	public void whenBeginSmallerThanEnd_thenReturnFalse() {
+		assertFalse(download.isMultiWorkerFileAlreadyDownloaded(1, 2));
 	}
 }

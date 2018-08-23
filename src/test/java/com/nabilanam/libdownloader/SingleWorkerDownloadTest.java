@@ -9,7 +9,7 @@ import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.file.Paths;
 
-import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.*;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
@@ -67,5 +67,15 @@ public class SingleWorkerDownloadTest {
 
 		long begin = download.getBegin(mockDir);
 		assertEquals(0L, begin);
+	}
+
+	@Test
+	public void whenContentLengthNotMOneAndBeginGreaterThanContentLength_thenReturnTrue() {
+		assertTrue(download.isSingleWorkerFileAlreadyDownloaded(1L, 0L));
+	}
+
+	@Test
+	public void whenContentLengthIsMOneAndBeginGreaterThanContentLength_thenReturnTrue() {
+		assertFalse(download.isSingleWorkerFileAlreadyDownloaded(1L, -1L));
 	}
 }
