@@ -11,7 +11,6 @@ import java.net.URL;
  */
 public class HttpInfo implements Serializable {
 
-	private URL url;
 	private String userAgent;
 	private String name;
 	private String eTag;
